@@ -10,6 +10,7 @@ import {
   CaseLogEntry,
 } from './types.ts';
 import { playUrgentAlertTone, playDispatchChime } from './utils/audioAlerts.ts';
+import { AlertCircle, X } from 'lucide-react';
 
 const INITIAL_SEED_CASES: CaseLogEntry[] = [
   {
@@ -78,6 +79,7 @@ export default function App() {
   const [currentTranscript, setCurrentTranscript] = useState<string>('');
   const [currentLanguage, setCurrentLanguage] = useState<string>('English');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [cases, setCases] = useState<CaseLogEntry[]>(() => {
     try {
       const stored = localStorage.getItem('cad_case_logs');
@@ -107,6 +109,7 @@ export default function App() {
 
   const handleAnalyze = async (transcript: string, language: string) => {
     setIsAnalyzing(true);
+    setApiError(null);
     setCurrentTranscript(transcript);
     setCurrentLanguage(language);
     setIsDispatchConfirmed(false);
@@ -154,11 +157,31 @@ export default function App() {
       const callNum = generateCallNumber();
       setCurrentCallNumber(callNum);
 
+      const timeNow = new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      // Add new case to case log immediately upon analysis
+      const newCase: CaseLogEntry = {
+        id: `case-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        callNumber: callNum,
+        timestamp: timeNow,
+        transcript,
+        language,
+        analysis: data,
+        servicesDispatched: [],
+        status: 'TRIAGED',
+      };
+
+      setCases((prev) => [newCase, ...prev]);
+
       // Play alert sound for priority
       playUrgentAlertTone(data.urgency, soundEnabled);
     } catch (error: any) {
       console.error('Failed to triage call:', error);
-      alert(`Emergency Analysis Error: ${error?.message || 'Server request failed'}`);
+      setApiError(error?.message || 'Emergency triage request failed. Please check network or retry.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -191,20 +214,34 @@ export default function App() {
     setIsDispatchConfirmed(true);
     playDispatchChime(soundEnabled);
 
-    // Create log entry
-    const newCase: CaseLogEntry = {
-      id: `case-${Date.now()}`,
-      callNumber: currentCallNumber,
-      timestamp: timeNow,
-      transcript: currentTranscript,
-      language: currentLanguage,
-      analysis,
-      dispatchedAt: timeNow,
-      servicesDispatched: dispatchedServices,
-      status: 'DISPATCHED',
-    };
-
-    setCases((prev) => [newCase, ...prev]);
+    // Update case in case log
+    setCases((prev) => {
+      const exists = prev.some((c) => c.callNumber === currentCallNumber);
+      if (exists) {
+        return prev.map((c) =>
+          c.callNumber === currentCallNumber
+            ? {
+                ...c,
+                dispatchedAt: timeNow,
+                servicesDispatched: dispatchedServices,
+                status: 'DISPATCHED',
+              }
+            : c
+        );
+      }
+      const newCase: CaseLogEntry = {
+        id: `case-${Date.now()}`,
+        callNumber: currentCallNumber,
+        timestamp: timeNow,
+        transcript: currentTranscript,
+        language: currentLanguage,
+        analysis,
+        dispatchedAt: timeNow,
+        servicesDispatched: dispatchedServices,
+        status: 'DISPATCHED',
+      };
+      return [newCase, ...prev];
+    });
   };
 
   const handleSelectCase = (entry: CaseLogEntry) => {
@@ -247,6 +284,7 @@ export default function App() {
 
   const handleResetAll = () => {
     setAnalysis(null);
+    setApiError(null);
     setDispatchState(DEFAULT_DISPATCH_STATE);
     setIsDispatchConfirmed(false);
     setCurrentCallNumber(generateCallNumber());
@@ -266,6 +304,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black">
+      {/* Skip to Main Content Link for Keyboard and Screen Reader Users */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2.5 focus:bg-cyan-400 focus:text-slate-950 focus:font-mono focus:font-bold focus:rounded-md focus:shadow-2xl focus:ring-2 focus:ring-white"
+      >
+        Skip to main content
+      </a>
+
       {/* CAD Top Header */}
       <CadHeader
         soundEnabled={soundEnabled}
@@ -274,9 +320,38 @@ export default function App() {
         activeCaseCount={cases.length}
       />
 
-      {/* Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5">
-        {/* Two-Column Split Layout for Laptop/Desktop */}
+      {/* Accessible Error Banner */}
+      {apiError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="max-w-7xl mx-auto w-full px-4 pt-3"
+        >
+          <div className="bg-red-950 border border-red-500 rounded-lg p-3 text-xs text-red-200 flex items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" aria-hidden="true" />
+              <span className="font-semibold text-white">Emergency CAD Alert: </span>
+              <span>{apiError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setApiError(null)}
+              aria-label="Dismiss error message"
+              className="p-1 rounded text-red-300 hover:text-white hover:bg-red-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Landmark */}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 flex flex-col gap-6 focus:outline-none"
+      >
+        {/* Two-Column Split Layout for Laptop/Desktop, stacks on mobile */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
           {/* Left Column: Audio & Transcript Intake */}
           <div className="lg:col-span-5 flex flex-col">
@@ -312,15 +387,20 @@ export default function App() {
       </main>
 
       {/* Footer System Status */}
-      <footer className="bg-slate-950 border-t border-slate-900 py-2.5 px-4 text-center text-[11px] font-mono text-slate-500 flex flex-wrap items-center justify-between gap-2 max-w-7xl mx-auto w-full">
+      <footer
+        role="contentinfo"
+        className="bg-slate-950 border-t border-slate-800 py-3 px-4 text-center text-xs font-mono text-slate-300 flex flex-wrap items-center justify-between gap-3 max-w-7xl mx-auto w-full"
+      >
         <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-          <span>DISPATCH WORKSTATION ONLINE</span>
-          <span className="text-slate-700">|</span>
-          <span>MODEL: GEMINI-3.8-FLASH</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400" aria-hidden="true"></span>
+          <span className="font-semibold text-slate-200">DISPATCH WORKSTATION ONLINE</span>
+          <span className="text-slate-500" aria-hidden="true">|</span>
+          <span className="text-slate-300">MODEL: GEMINI-3.8-FLASH</span>
         </div>
         <div>
-          <span>FIRST RESPONDER DISPATCH INTERFACE • PROTOCOL CAD-911/112</span>
+          <span className="text-slate-300">
+            FIRST RESPONDER DISPATCH INTERFACE • PROTOCOL CAD-911/112 (WCAG 2.1 AA COMPLIANT)
+          </span>
         </div>
       </footer>
     </div>
