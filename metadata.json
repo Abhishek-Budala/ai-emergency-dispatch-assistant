@@ -1,0 +1,6 @@
+{
+  "name": "AI Emergency Dispatch Assistant",
+  "description": "Real-time AI emergency dispatch intake with live multilingual speech recognition, instant incident triage, emergency service routing, and CAD case logging.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
